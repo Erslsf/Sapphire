@@ -158,7 +158,7 @@ If you find Sapphire useful, consider supporting its development with a donation
 | Currency           | QR Code                    | Address                                      |
 | ------------------ | -------------------------- | -------------------------------------------- |
 | **Bitcoin (BTC)**  | ![BTC QR](qr/btc_qr.png)   | `bc1ql9un693nq0p4wed6xx9kgna920hccf6e2mpyde` |
-| **Ethereum (ETH)** | ![ETH QR](qr/eth_qr.png)   | `EdC5D58f1b4c2AfAdc40a33fB4A0BDB2E43`        |
+| **Ethereum (ETH)** | ![ETH QR](qr/eth_qr.png)   | `0x9C369EdC5D58f1b4c2AfAdc40a33fB4A0BDB2E43`        |
 | **Tether (USDT)**  | ![USDT QR](qr/usdt_qr.png) | `TKKduSc6JfeDY22YyeTc2dxpb7qM1vMJaU`         |
 
 _Your support helps maintain and improve Sapphire. Thank you! 🙏_

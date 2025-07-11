@@ -54,7 +54,7 @@ The IDFT ecosystem enables:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/sapphire.git
+git clone https://github.com/Erslsf/sapphire.git
 cd sapphire
 ```
 

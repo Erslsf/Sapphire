@@ -8,9 +8,20 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+from io import BytesIO
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+# QR Code generation imports
+try:
+    import qrcode
+    from qrcode.image.styledpil import StyledPilImage
+    from qrcode.image.styles.moduledrawers import VerticalBarsDrawer
+    from PIL import Image
+    QR_AVAILABLE = True
+except ImportError:
+    QR_AVAILABLE = False
 
 
 class SapphireHood:
@@ -430,3 +441,110 @@ class SapphireHood:
             return True
         except ValueError:
             return False
+    
+    def information_for_qr(self, amount: float = None, currency: str = "eth", address: str = None) -> str:
+        """Generate URI for QR code payment"""
+        if address is None: 
+            raise ValueError("Address cannot be None")
+        if currency == "eth":
+            uri = f"ethereum:{address}"
+        elif currency == "btc":
+            uri = f"bitcoin:{address}"
+        elif currency == "tron":
+            uri = f"tron:{address}"
+        else:
+            uri = f"{currency}:{address}"
+        
+        if amount is not None:
+            uri += f"?amount={amount}"
+        return uri
+    
+    def generate_payment_qrcode(self, wallet: str = None, currency: str = "eth", amount: float = None, logo_path: str = None) -> BytesIO:
+        """Generate QR code for payment"""
+        if not QR_AVAILABLE:
+            raise ImportError("QR code libraries not available. Install with: pip install qrcode[pil] pillow")
+        
+        uri = self.information_for_qr(amount=amount, currency=currency, address=wallet)
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,  # High correction for logo
+            box_size=10, 
+            border=4
+        )
+        qr.add_data(uri)
+        qr.make(fit=True)
+        
+        # Create QR code
+        img = qr.make_image(
+            image_factory=StyledPilImage, 
+            module_drawer=VerticalBarsDrawer(horizontal_shrink=0.8)
+        )
+        
+        # Инвертируем цвета изображения (черное становится белым и наоборот)
+        from PIL import ImageOps
+        img = ImageOps.invert(img.convert('RGB'))
+        
+        # Add logo if file exists
+        if logo_path and os.path.exists(logo_path):
+            try:
+                # Open logo
+                logo = Image.open(logo_path)
+                
+                # Get QR code dimensions
+                qr_width, qr_height = img.size
+                
+                # Calculate logo size (20% of QR code size)
+                logo_size = min(qr_width, qr_height) // 3  # 33% of size
+
+                # Resize logo maintaining proportions
+                logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
+                
+                # White background for better QR code readability (after inversion)
+                if logo.mode != 'RGBA':
+                    # Create WHITE square slightly larger than logo
+                    background_size = logo_size + 10
+                    background = Image.new('RGB', (background_size, background_size), 'white')  # White background
+                    
+                    # Place logo in center of white background
+                    logo_bg_pos = ((background_size - logo_size) // 2, (background_size - logo_size) // 2)
+                    background.paste(logo, logo_bg_pos)
+                    logo = background
+                    logo_size = background_size
+                
+                # Calculate position to place logo exactly in center
+                logo_x = (qr_width - logo_size) // 2
+                logo_y = (qr_height - logo_size) // 2
+                
+                # Insert logo in center of QR code
+                if logo.mode == 'RGBA':
+                    img.paste(logo, (logo_x, logo_y), logo)  # With alpha channel
+                else:
+                    img.paste(logo, (logo_x, logo_y))  # Without alpha channel
+                    
+            except Exception as e:
+                print(f"Error adding logo: {e}")
+                # Continue without logo
+        
+        # Save image to BytesIO
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+
+        return buffer
+    def delete_wallet(self, wallet_name):
+        """Delete a wallet by name"""
+        if not self.is_authenticated:
+            raise PermissionError("Authentication required")
+        
+        # Find wallet file by name
+        wallet_files = list(self.wallets_dir.glob(f"*{wallet_name}*.json"))
+        if not wallet_files:
+            raise FileNotFoundError(f"Wallet '{wallet_name}' not found")
+        
+        # Delete the wallet file
+        wallet_file = wallet_files[0]
+        try:
+            wallet_file.unlink()
+            return True
+        except Exception as e:
+            raise IOError(f"Failed to delete wallet file: {e}")

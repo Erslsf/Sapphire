@@ -1,5 +1,5 @@
 """" 
-version = 0.1.a1
+version = 1.4.a2
 This file is part of the Sapphire project, a decentralized finance (DeFi) application.
 It is distributed under the GNU General Public License v3.0 (GPL-3.0).
 Main architecturer: B.E.S 
@@ -13,10 +13,11 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget, QMessageBox, QSizePolicy,
-    QStackedWidget, QFormLayout, QInputDialog, QListWidgetItem
+    QStackedWidget, QFormLayout, QInputDialog, QListWidgetItem, QDialog,
+    QDialogButtonBox, QTextEdit, QComboBox, QScrollArea
 )
-from PyQt6.QtGui import QFont, QIcon, QPixmap
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter, QPainterPath, QClipboard
+from PyQt6.QtCore import Qt, QSize, QTimer
 
 # Определяем базовый путь для ресурсов
 def get_base_path():
@@ -107,7 +108,7 @@ class LoginWindow(QWidget):
 
         # Logo
         logo_label = QLabel(self)
-        logo_path = str(ASSETS_PATH / "icons" / "sp.png")
+        logo_path = str(ASSETS_PATH / "icons" / "logo_sap.png")
         if os.path.exists(logo_path):
             pixmap = QPixmap(logo_path)
             logo_label.setPixmap(pixmap.scaled(96, 96, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
@@ -256,6 +257,26 @@ class MainWindow(QWidget):
             QPushButton:pressed {
                 background-color: #004578;
             }
+            /* Delete Wallet Button - Custom styling */
+            QPushButton#deleteWalletButton {
+                background-color: none;
+                color: white;
+                font-weight: bold;
+                border-radius: 15px;
+                padding: 5px 10px;
+                border: 2px dashed #e61919;
+                font-size: 9pt;
+                max-width: 80px;
+                min-width: 80px;
+            }
+            QPushButton#deleteWalletButton:hover {
+                background-color: #c82333;
+                border: 2px solid #c82333;
+            }
+            QPushButton#deleteWalletButton:pressed {
+                background-color: #bd2130;
+                border: 2px solid #bd2130;
+            }
             /* Add Wallet Button - Custom styling */
             QPushButton#addWalletButton {
                 background: none;
@@ -331,7 +352,7 @@ class MainWindow(QWidget):
             }
             QWidget#buttonContainer {
                 background-color: #1a1a1a;
-                border-radius: 30px;
+                border-radius: 15px;
             }
             QLabel {
                 font-size: 10pt;
@@ -389,19 +410,99 @@ class MainWindow(QWidget):
         welcome_layout.addWidget(welcome_label)
 
         self.wallet_details_widget = QWidget()
-        self.wallet_details_layout = QFormLayout(self.wallet_details_widget)
-        self.wallet_name_label = QLabel()
-        self.wallet_address_label = QLabel()
-        self.wallet_type_label = QLabel()
-        self.wallet_created_label = QLabel()
-        self.wallet_details_layout.addRow("Name:", self.wallet_name_label)
-        self.wallet_details_layout.addRow("Address:", self.wallet_address_label)
-        self.wallet_details_layout.addRow("Type:", self.wallet_type_label)
-        self.wallet_details_layout.addRow("Created:", self.wallet_created_label)
+        details_main_layout = QVBoxLayout(self.wallet_details_widget)
+        
+        # Wallet name at the top
+        wallet_name_widget = QWidget()
+        wallet_name_layout = QHBoxLayout(wallet_name_widget)
+        wallet_name_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.wallet_name_display = QLabel()
+        self.wallet_name_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.wallet_name_display.setStyleSheet("""
+            QLabel {
+                font-size: 14pt;
+                font-weight: bold;
+                color: #ffffff;
+            }
+        """)
+        wallet_name_layout.addWidget(self.wallet_name_display)
+        
+        # QR code below name
+        qr_widget = QWidget()
+        qr_layout = QHBoxLayout(qr_widget)
+        qr_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.qr_code_label = QLabel()
+        self.qr_code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr_code_label.setFixedSize(250, 250)
+        self.qr_code_label.setStyleSheet("""
+            QLabel {
+                border-radius: 50px;
+            }
+        """)
+        self.qr_code_label.setText("No QR Code")
+        
+        qr_layout.addWidget(self.qr_code_label)
+        
+        # Address below QR code
+        address_widget = QWidget()
+        address_layout = QHBoxLayout(address_widget)
+        address_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        address_layout.setContentsMargins(0, 10, 0, 0)  # Небольшой отступ от QR кода
+        
+        self.wallet_address_display = QLabel()
+        self.wallet_address_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.wallet_address_display.setWordWrap(True)
+        self.wallet_address_display.setStyleSheet("""
+            QLabel {
+                font-size: 10pt;
+                color: #cccccc;
+                max-width: 400px;
+            }
+        """)
+        
+        self.copy_address_btn = QPushButton("Copy")
+        self.copy_address_btn.setFixedSize(65, 30)
+        self.copy_address_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: black;
+                font-weight: bold;
+                border-radius: 12px;
+                padding: 3px;
+                border: 1px solid #555555;
+                font-size: 8pt;
+            }
+        """)
+        self.copy_address_btn.clicked.connect(self.copy_address_to_clipboard)
+        
+        address_layout.addWidget(self.wallet_address_display)
+        address_layout.addWidget(self.copy_address_btn)
+        
+        # Bottom - wallet information (without address, as it's now under QR)
+        info_widget = QWidget()
+        self.wallet_details_layout = QFormLayout(info_widget)
 
-        # Add delete button to wallet details
-        self.delete_wallet_btn = QPushButton("🗑️ Delete Wallet")
-        self.wallet_details_layout.addRow("", self.delete_wallet_btn)
+        # Add delete button to wallet details - smaller and to the right
+        delete_container = QWidget()
+        delete_layout = QHBoxLayout(delete_container)
+        delete_layout.setContentsMargins(0, 10, 0, 0)
+        delete_layout.addStretch()  # Push button to the right
+        
+        self.delete_wallet_btn = QPushButton("Delete")
+        self.delete_wallet_btn.setObjectName("deleteWalletButton")
+        self.delete_wallet_btn.setFixedSize(80, 30)
+        
+        delete_layout.addWidget(self.delete_wallet_btn)
+        self.wallet_details_layout.addRow("", delete_container)
+        
+        # Add wallet name at top, then QR code, then address, then wallet info below
+        details_main_layout.addWidget(wallet_name_widget)
+        details_main_layout.addWidget(qr_widget)
+        details_main_layout.addWidget(address_widget)
+        details_main_layout.addWidget(info_widget)
+        details_main_layout.addStretch()  # Push content to top
 
         self.right_panel.addWidget(self.welcome_widget)
         self.right_panel.addWidget(self.wallet_details_widget)
@@ -541,25 +642,72 @@ class MainWindow(QWidget):
         if not wallet_data:
             return
 
-        self.wallet_name_label.setText(wallet_data.get("name", "N/A"))
-        self.wallet_address_label.setText(wallet_data.get("address", "N/A"))
-        self.wallet_address_label.setWordWrap(True)
-        self.wallet_type_label.setText(wallet_data.get("type", "N/A"))
-        self.wallet_created_label.setText(wallet_data.get("created_at", "N/A"))
+        self.wallet_name_display.setText(wallet_data.get("name", "N/A"))
+        self.wallet_address_display.setText(wallet_data.get("address", "N/A"))
 
+        # Generate and display QR code
+        self.generate_qr_code(wallet_data.get("address", ""))
+        
         self.right_panel.setCurrentWidget(self.wallet_details_widget)
 
-    def add_wallet_dialog(self):
-        # Simple dialog to create a new wallet
-        name, ok = QInputDialog.getText(self, 'Create Wallet', 'Enter a name for the new wallet:')
+    def generate_qr_code(self, address):
+        """Generate QR code for wallet address"""
+        try:
+            # Generate QR code using the backend method
+            logo_path = str(ASSETS_PATH / "icons" / "logo_sap.png")
+            qr_buffer = self.hood.generate_payment_qrcode(
+                wallet=address, 
+                currency="eth", 
+                logo_path=logo_path if os.path.exists(logo_path) else None
+            )
+            
+            # Convert BytesIO to QPixmap
+            qr_buffer.seek(0)
+            qr_data = qr_buffer.read()
+            
+            pixmap = QPixmap()
+            pixmap.loadFromData(qr_data)
+            
+            # Scale pixmap to fit the label
+            scaled_pixmap = pixmap.scaled(
+                250, 250, 
+                Qt.AspectRatioMode.KeepAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+            
+            # Create a rounded rectangle mask instead of circle
+            rounded_pixmap = QPixmap(250, 250)
+            rounded_pixmap.fill(Qt.GlobalColor.transparent)
+            
+            from PyQt6.QtGui import QPainter, QPainterPath
+            painter = QPainter(rounded_pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Create rounded rectangle path with 50px radius
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, 250, 250, 50, 50)
+            painter.setClipPath(path)
+            
+            # Draw the QR code
+            painter.drawPixmap(0, 0, scaled_pixmap)
+            painter.end()
+            
+            self.qr_code_label.setPixmap(rounded_pixmap)
+            
+        except Exception as e:
+            # Fallback if QR generation fails
+            self.qr_code_label.setText(f"QR Error:\n{str(e)[:50]}...")
+            self.qr_code_label.setStyleSheet("""
+                QLabel {
+                    border-radius: 50px;
+                }
+            """)
 
-        if ok and name:
-            success, message, data = self.hood.create_new_wallet(name)
-            if success:
-                QMessageBox.information(self, "Success", f"{message}\n\nAddress: {data['address']}\nPrivate Key: {data['private_key']}\n\nSAVE THE PRIVATE KEY!")
-                self.update_wallet_list()
-            else:
-                QMessageBox.critical(self, "Error", message)
+    def add_wallet_dialog(self):
+        """Open advanced wallet creation dialog"""
+        dialog = WalletDialog(self.hood, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.update_wallet_list()
 
     def delete_wallet(self):
         """Deletes the selected wallet after confirmation."""
@@ -570,23 +718,280 @@ class MainWindow(QWidget):
 
         wallet_name = selected_items[0].text()
 
-        reply = QMessageBox.question(self, "Подтверждение",
-                                     f"Вы уверены, что хотите удалить кошелек '{wallet_name}'?\nЭто действие необратимо.",
+        reply = QMessageBox.question(self, "Confirmation",
+                                     f"Are you sure you want to delete wallet '{wallet_name}'?\nThis action is irreversible.",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 self.hood.delete_wallet(wallet_name)
-                QMessageBox.information(self, "Успех", f"Кошелек '{wallet_name}' был успешно удален.")
+                QMessageBox.information(self, "Success", f"Wallet '{wallet_name}' has been successfully deleted.")
                 self.update_wallet_list() # Refresh the wallet list
                 self.right_panel.setCurrentWidget(self.welcome_widget) # Switch to welcome widget
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось удалить кошелек: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to delete wallet: {e}")
 
     def show_not_implemented_message(self):
         """Shows a message that the feature is not implemented."""
         QMessageBox.information(self, "In Development", "This functionality will be added in future versions.")
+
+    def copy_address_to_clipboard(self):
+        """Copy wallet address to clipboard and show notification."""
+        address = self.wallet_address_display.text()
+        if address and address != "N/A":
+            clipboard = QApplication.clipboard()
+            clipboard.setText(address)
+            
+            # Temporarily change button text to show feedback
+            original_text = self.copy_address_btn.text()
+            self.copy_address_btn.setText("Copied!")
+            self.copy_address_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #000000;
+                    color: white;
+                    font-weight: bold;
+                    border-radius: 12px;
+                    padding: 3px;
+                    border: 2px solid #ffffff;
+                    font-size: 8pt;
+                }
+            """)
+            
+            # Reset button after 1.5 seconds
+            QTimer.singleShot(1500, lambda: self.reset_copy_button(original_text))
+
+    def reset_copy_button(self, original_text):
+        """Reset copy button to original state."""
+        self.copy_address_btn.setText(original_text)
+        self.copy_address_btn.setFixedSize(65, 30)
+        self.copy_address_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: black;
+                font-weight: bold;
+                border-radius: 12px;
+                padding: 3px;
+                font-size: 8pt;
+            }
+        """)
+
+class WalletDialog(QDialog):
+    """Advanced dialog for creating or importing wallets"""
+    def __init__(self, hood: SapphireHood, parent=None):
+        super().__init__(parent)
+        self.hood = hood
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle('Add Wallet')
+        self.setFixedSize(500, 400)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #000000;
+                color: #FFFFFF;
+            }
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12pt;
+            }
+            QComboBox {
+                background-color: #1f1f1f;
+                color: #FFFFFF;
+                border: 2px solid #555;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 11pt;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
+            }
+            QLineEdit, QTextEdit {
+                background-color: #1f1f1f;
+                border: 2px solid #555;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 11pt;
+                color: #FFFFFF;
+            }
+            QLineEdit:focus, QTextEdit:focus {
+                border: 2px solid #0078d7;
+            }
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 10px;
+                border: none;
+                font-size: 11pt;
+            }
+            QPushButton:hover {
+                background-color: #005a9e;
+            }
+            QPushButton:pressed {
+                background-color: #004578;
+            }
+        """)
+
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Title
+        title_label = QLabel("Add New Wallet")
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold; margin-bottom: 10px;")
+        layout.addWidget(title_label)
+
+        # Wallet type selection
+        type_label = QLabel("Wallet Type:")
+        self.type_combo = QComboBox()
+        self.type_combo.addItems([
+            "Create New Wallet",
+            "Import from Private Key", 
+            "Import from Mnemonic Phrase",
+            "Watch-Only Address"
+        ])
+        self.type_combo.currentTextChanged.connect(self.on_type_changed)
+        
+        layout.addWidget(type_label)
+        layout.addWidget(self.type_combo)
+
+        # Wallet name input
+        name_label = QLabel("Wallet Name:")
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Enter a name for your wallet")
+        
+        layout.addWidget(name_label)
+        layout.addWidget(self.name_input)
+
+        # Dynamic input area
+        self.input_label = QLabel()
+        self.input_widget = QLineEdit()
+        self.input_widget.setPlaceholderText("No additional input required")
+        self.input_widget.setEnabled(False)
+        
+        layout.addWidget(self.input_label)
+        layout.addWidget(self.input_widget)
+
+        # Button box
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept_wallet)
+        button_box.rejected.connect(self.reject)
+        
+        layout.addStretch()
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+        self.on_type_changed("Create New Wallet")  # Initialize with default
+
+    def on_type_changed(self, wallet_type):
+        """Handle wallet type change"""
+        if wallet_type == "Create New Wallet":
+            self.input_label.setText("")
+            self.input_widget.setPlaceholderText("No additional input required")
+            self.input_widget.setEnabled(False)
+            self.input_widget.clear()
+            
+        elif wallet_type == "Import from Private Key":
+            self.input_label.setText("Private Key:")
+            self.input_widget.setPlaceholderText("Enter your private key (64 characters)")
+            self.input_widget.setEnabled(True)
+            self.input_widget.setEchoMode(QLineEdit.EchoMode.Password)
+            
+        elif wallet_type == "Import from Mnemonic Phrase":
+            # Replace with QTextEdit for multiline
+            if isinstance(self.input_widget, QLineEdit):
+                self.input_widget.setParent(None)
+                self.input_widget = QTextEdit()
+                self.input_widget.setStyleSheet(self.styleSheet())
+                self.layout().insertWidget(5, self.input_widget)
+            
+            self.input_label.setText("Mnemonic Phrase:")
+            self.input_widget.setPlaceholderText("Enter your 12 or 24 word mnemonic phrase")
+            self.input_widget.setEnabled(True)
+            
+        elif wallet_type == "Watch-Only Address":
+            # Ensure it's QLineEdit
+            if isinstance(self.input_widget, QTextEdit):
+                self.input_widget.setParent(None)
+                self.input_widget = QLineEdit()
+                self.input_widget.setStyleSheet(self.styleSheet())
+                self.layout().insertWidget(5, self.input_widget)
+                
+            self.input_label.setText("Ethereum Address:")
+            self.input_widget.setPlaceholderText("0x...")
+            self.input_widget.setEnabled(True)
+            if hasattr(self.input_widget, 'setEchoMode'):
+                self.input_widget.setEchoMode(QLineEdit.EchoMode.Normal)
+
+    def accept_wallet(self):
+        """Process wallet creation/import"""
+        wallet_name = self.name_input.text().strip()
+        wallet_type = self.type_combo.currentText()
+        
+        if not wallet_name:
+            QMessageBox.warning(self, "Error", "Please enter a wallet name.")
+            return
+
+        try:
+            if wallet_type == "Create New Wallet":
+                success, message, data = self.hood.create_new_wallet(wallet_name)
+                if success:
+                    QMessageBox.information(self, "Success", 
+                        f"{message}\n\n"
+                        f"Address: {data['address']}\n"
+                        f"Private Key: {data['private_key']}\n\n"
+                        f"⚠️ IMPORTANT: Save your private key in a secure location!")
+                    self.accept()
+                else:
+                    QMessageBox.critical(self, "Error", message)
+                    
+            elif wallet_type == "Import from Private Key":
+                private_key = self.input_widget.text().strip()
+                if not private_key:
+                    QMessageBox.warning(self, "Error", "Please enter a private key.")
+                    return
+                    
+                success, message = self.hood.import_private_key(private_key, wallet_name)
+                if success:
+                    QMessageBox.information(self, "Success", message)
+                    self.accept()
+                else:
+                    QMessageBox.critical(self, "Error", message)
+                    
+            elif wallet_type == "Import from Mnemonic Phrase":
+                mnemonic = self.input_widget.toPlainText().strip()
+                if not mnemonic:
+                    QMessageBox.warning(self, "Error", "Please enter a mnemonic phrase.")
+                    return
+                    
+                success, message = self.hood.import_mnemonic(mnemonic, wallet_name)
+                if success:
+                    QMessageBox.information(self, "Success", message)
+                    self.accept()
+                else:
+                    QMessageBox.critical(self, "Error", message)
+                    
+            elif wallet_type == "Watch-Only Address":
+                address = self.input_widget.text().strip()
+                if not address:
+                    QMessageBox.warning(self, "Error", "Please enter an Ethereum address.")
+                    return
+                    
+                success, message = self.hood.add_watch_only_wallet(address, wallet_name)
+                if success:
+                    QMessageBox.information(self, "Success", message)
+                    self.accept()
+                else:
+                    QMessageBox.critical(self, "Error", message)
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)

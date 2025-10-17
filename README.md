@@ -61,7 +61,7 @@ cd sapphire
 ### 2. Install dependencies
 
 ```bash
-pip install -r requirements/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 3. Run the application
@@ -152,16 +152,6 @@ Developed in Astana, Kazakhstan
 Sapphire is a free and open-source project developed independently. All development, maintenance, and improvements depend entirely on community support through donations. Your contribution, no matter how small, helps keep this project alive and growing.
 
 If you find Sapphire useful, consider supporting its development with a donation:
-
-### Cryptocurrency Donations
-
-| Currency           | QR Code                    | Address                                      |
-| ------------------ | -------------------------- | -------------------------------------------- |
-| **Bitcoin (BTC)**  | ![BTC QR](qr/btc_qr.png)   | `bc1ql9un693nq0p4wed6xx9kgna920hccf6e2mpyde` |
-| **Ethereum (ETH)** | ![ETH QR](qr/eth_qr.png)   | `0x9C369EdC5D58f1b4c2AfAdc40a33fB4A0BDB2E43` |
-| **Tether (USDT)**  | ![USDT QR](qr/usdt_qr.png) | `TKKduSc6JfeDY22YyeTc2dxpb7qM1vMJaU`         |
-
-_Your support helps maintain and improve Sapphire. Thank you! 🙏_
 
 ## Version
 

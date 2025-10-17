@@ -1,3 +1,14 @@
+"""
+Manages Ethereum keys and user data "under the hood" for the GUI.
+Designed by DEECKER with ❤️, in Astana, Kazakhstan.
+Handles:
+- Initialization and setup
+- Password management and authentication
+- Wallet creation, import, and management
+- Encryption and decryption of wallet files
+- QR code generation for payments
+"""
+
 import base64
 import hashlib
 import json
@@ -6,14 +17,19 @@ import re
 import secrets
 import sys
 import uuid
+import requests
 from datetime import datetime
 from pathlib import Path
 from io import BytesIO
+from hashlib import sha256
+import base58
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
-# QR Code generation imports
+from ecdsa import SigningKey, SECP256k1
+from tronpy import Tron
+from eth_account import Account
+from tronpy.keys import PrivateKey
 try:
     import qrcode
     from qrcode.image.styledpil import StyledPilImage
@@ -24,6 +40,7 @@ except ImportError:
     QR_AVAILABLE = False
 
 
+
 class SapphireHood:
     """
     Manages Ethereum keys and user data "under the hood" for the GUI.
@@ -31,10 +48,14 @@ class SapphireHood:
     def __init__(self):
         # Define paths for key storage
         self.user_home = Path.home()
-        self.app_data_dir = self.user_home / ".sapphire0.1.0"
-        self.keys_dir = self.app_data_dir / "ethereum_keys"
-        self.wallets_dir = self.keys_dir / "wallets"
-        self.backups_dir = self.keys_dir / "backups"
+        self.app_data_dir = self.user_home / ".sapphire.data"
+        self.eth_dir = self.app_data_dir / "ethereum"
+        self.btc_dir = self.app_data_dir / "bitcoin"
+        self.tron_dir = self.app_data_dir / "tron"
+        self.eth_wallets_dir = self.eth_dir / "eth_wallets"
+        self.btc_wallets_dir = self.btc_dir / "btc_wallets"
+        self.tron_wallets_dir = self.tron_dir / "tron_wallets"
+        self.backups_dir = self.eth_dir / "backups"
         self.config_file = self.app_data_dir / "config.json"
         self.password_hash_file = self.app_data_dir / ".password_hash"
         self.lock_file = self.app_data_dir / ".locked"
@@ -67,12 +88,67 @@ class SapphireHood:
             # but initialize needs one password, and setup needs two.
             # The GUI should call setup_new_installation directly.
             return False, "First launch. Use setup_new_installation."
-
+    def get_btc_balance(self, address):
+        url = f"https://mempool.space/api/address/{address}"
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                balance_sats = data.get("chain_stats", {}).get("funded_txo_sum", 0) - data.get("chain_stats", {}).get("spent_txo_sum", 0)
+                balance_btc = balance_sats / 1e8
+                return balance_btc
+            else:
+                return None
+        except Exception:
+            return None
+    
+    def get_eth_balance(self, address):
+        url = f'https://api.ethplorer.io/getAddressInfo/{address}?apiKey=freekey'
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("ETH", {}).get("balance", 0)
+            else:
+                return None
+        except Exception:
+            return None
+        
+    def get_binance_klines(self, symbol="BTCUSDT", interval="1h", limit=100) -> list[dict]:
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+        data = requests.get(url).json()
+        candles = [
+            {
+                "time": k[0] // 1000,  # в секундах
+                "open": float(k[1]),
+                "high": float(k[2]),
+                "low": float(k[3]),
+                "close": float(k[4])
+            }
+            for k in data
+        ]
+        return candles
+    
+    def get_tron_balance(self, address):
+        url = f'https://api.trongrid.io/v1/accounts/{address}'
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if 'data' in data and len(data['data']) > 0:
+                    return data['data'][0].get('balance', 0) / 1e6  # TRX has 6 decimals
+                else:
+                    return 0
+            else:
+                return None
+        except Exception:
+            return None
+    
     def get_wallet_files(self):
         """Returns a list of wallet files."""
-        if not self.wallets_dir.exists():
+        if not self.eth_wallets_dir.exists():
             return []
-        return list(self.wallets_dir.glob("*.json"))
+        return list(self.eth_wallets_dir.glob("*.json"))
 
     def check_wallets(self):
         """
@@ -96,16 +172,54 @@ class SapphireHood:
             except Exception:
                 wallets_info.append({'name': wallet_file.name, 'address': 'Read error', 'error': True})
         return wallets_info
+    #+++
+    def  generate_eth_address(self):
+        account = Account.create()
+        private_key = account.key.hex()
+        address = account.address
+        return private_key, address
+    #+++
+    def generate_tron_address(self):
+        # Создаем приватный ключ
+        priv_key = PrivateKey.random()
+        # Получаем адрес
+        address = priv_key.public_key.to_base58check_address()
+        private_key = priv_key.hex()
+        return private_key, address
+    #+++
+    def generate_btc_address(self):
+        """
+        Генерирует новый Bitcoin-кошелёк:
+        - Приватный ключ
+        - Публичный ключ
+        - Bitcoin-адрес
+        """
+        private_key = os.urandom(32)
+        private_key_hex = private_key.hex()
 
-    def create_new_wallet(self, wallet_name: str):
-        """Create a new Ethereum wallet"""
+        sk = SigningKey.from_string(private_key, curve=SECP256k1)
+        verifying_key = sk.get_verifying_key()
+        public_key_bytes = b'\x04' + verifying_key.to_string()  # некомпрессированный формат
+        public_key_hex = public_key_bytes.hex()
+
+        sha256_hash = hashlib.sha256(public_key_bytes).digest()
+        ripemd160_hash = hashlib.new('ripemd160', sha256_hash).digest()
+
+        network_payload = b'\x00' + ripemd160_hash  # префикс для основной сети
+        checksum = hashlib.sha256(hashlib.sha256(network_payload).digest()).digest()[:4]
+        full_payload = network_payload + checksum
+        address = base58.b58encode(full_payload).decode()
+
+        return private_key_hex, public_key_hex, address
+    
+    def create_new_wallet_tron(self, wallet_name: str):
+        """Create a new Tron wallet"""
         if not self.is_authenticated:
             return False, "Authentication required", None
         if not wallet_name or len(wallet_name) == 0:
             return False, "Name cannot be empty", None
 
-        private_key = secrets.token_hex(32)
-        address = self.generate_eth_address(private_key)
+        private_key, address = self.generate_tron_address()
         
         wallet_data = {
             "name": wallet_name,
@@ -113,15 +227,59 @@ class SapphireHood:
             "private_key": private_key,
             "created_at": datetime.now().isoformat(),
             "type": "generated",
+            "currency": "tron",
             "network": "mainnet"
         }
+        if self.save_wallet(dir=self.tron_wallets_dir, wallet_data=wallet_data):
+            return True, f"Wallet '{wallet_name}' of Tron created successfully!", {"address": address, "private_key": private_key}
+        else:
+            return False, "Error saving wallet", None
+    def create_new_wallet_btc(self, wallet_name: str):
+        """Create a new Bitcoin wallet"""
+        if not self.is_authenticated:
+            return False, "Authentication required", None
+        if not wallet_name or len(wallet_name) == 0:
+            return False, "Name cannot be empty", None
+        private_key, pub_key, address = self.generate_btc_address()
+        wallet_data = {
+            "name": wallet_name,
+            "address": address,
+            "private_key": private_key,
+            "created_at": datetime.now().isoformat(),
+            "type": "generated",
+            "public_key": pub_key,
+            "currency": "btc",
+            "network": "mainnet"
+        }
+        if self.save_wallet(dir=self.btc_wallets_dir, wallet_data=wallet_data):
+            return True, f"Bitcoin wallet '{wallet_name}' created successfully!", {"address": address, "private_key": private_key}
+        else:
+            return False, "Error saving wallet", None
+    def create_new_wallet_eth(self, wallet_name: str):
+        """Create a new Ethereum wallet"""
+        if not self.is_authenticated:
+            return False, "Authentication required", None
+        if not wallet_name or len(wallet_name) == 0:
+            return False, "Name cannot be empty", None
+
+        private_key, address = self.generate_eth_address()
         
-        if self.save_wallet(wallet_data):
-            return True, f"Wallet '{wallet_name}' created successfully!", {"address": address, "private_key": private_key}
+        wallet_data = {
+            "name": wallet_name,
+            "address": address,
+            "private_key": private_key,
+            "created_at": datetime.now().isoformat(),
+            "type": "generated",
+            "currency": "eth",
+            "network": "mainnet"
+        }
+
+        if self.save_wallet(dir=self.eth_wallets_dir, wallet_data=wallet_data):
+            return True, f"Wallet '{wallet_name}' of Ethereum created successfully!", {"address": address, "private_key": private_key}
         else:
             return False, "Error saving wallet", None
 
-    def import_private_key(self, private_key: str, wallet_name: str):
+    def import_private_key(self,  wallet_name: str):
         """Import wallet from private key"""
         if not self.is_authenticated:
             return False, "Authentication required"
@@ -130,7 +288,7 @@ class SapphireHood:
         if not wallet_name or len(wallet_name) == 0:
             return False, "Name cannot be empty"
 
-        address = self.generate_eth_address(private_key)
+        private_key, address = self.generate_eth_address()
         
         wallet_data = {
             "name": wallet_name,
@@ -157,8 +315,7 @@ class SapphireHood:
         if not wallet_name or len(wallet_name) == 0:
             return False, "Name cannot be empty"
 
-        private_key = self.derive_private_key_from_mnemonic(mnemonic)
-        address = self.generate_eth_address(private_key)
+        private_key, address = self.generate_eth_address()
         
         wallet_data = {
             "name": wallet_name,
@@ -186,25 +343,18 @@ class SapphireHood:
             return True
         except ValueError:
             return False
-
-    def generate_eth_address(self, private_key):
-        """Simplified Ethereum address generation"""
-        if private_key.startswith('0x'):
-            private_key = private_key[2:]
-        key_hash = hashlib.sha256(private_key.encode()).hexdigest()
-        return "0x" + key_hash[:40]
-
+        
     def derive_private_key_from_mnemonic(self, mnemonic):
         """Simplified private key derivation from mnemonic"""
         mnemonic_hash = hashlib.sha256(mnemonic.encode()).hexdigest()
         return mnemonic_hash
 
-    def save_wallet(self, wallet_data):
+    def save_wallet(self, dir, wallet_data):
         """Save a wallet in encrypted form"""
         try:
             safe_name = re.sub(r'[^\w\-_\.]', '_', wallet_data['name'])
             filename = f"{safe_name}_{wallet_data['address'][:8]}.json"
-            filepath = self.wallets_dir / filename
+            filepath = dir / filename
             
             wallet_json = json.dumps(wallet_data, indent=2)
             encrypted_wallet = self.encryption_key.encrypt(wallet_json.encode())
@@ -228,12 +378,7 @@ class SapphireHood:
             decrypted_data = self.encryption_key.decrypt(encrypted_data)
             wallet_data = json.loads(decrypted_data.decode())
             
-            return {
-                'name': wallet_data.get('name', 'Unknown'),
-                'address': wallet_data.get('address', 'Unknown'),
-                'type': wallet_data.get('type', 'Unknown'),
-                'created_at': wallet_data.get('created_at', 'Unknown')
-            }
+            return wallet_data
         except Exception as e:
             # For a GUI, it's better to log or return an error than to print
             raise IOError(f"Error reading wallet {wallet_file.name}") from e
@@ -243,7 +388,7 @@ class SapphireHood:
         if not self.is_authenticated:
             return False, "Authentication required"
         try:
-            wallet_files = list(self.wallets_dir.glob(f"{wallet_name}*.json"))
+            wallet_files = list(self.eth_wallets_dir.glob(f"{wallet_name}*.json"))
             if not wallet_files:
                 return False, "Wallet not found"
             
@@ -348,8 +493,12 @@ class SapphireHood:
         
         directories_to_create = [
             self.app_data_dir,
-            self.keys_dir,
-            self.wallets_dir,
+            self.eth_dir,
+            self.btc_dir,
+            self.tron_dir,
+            self.eth_wallets_dir,
+            self.btc_wallets_dir,
+            self.tron_wallets_dir,
             self.backups_dir
         ]
         
@@ -441,7 +590,38 @@ class SapphireHood:
             return True
         except ValueError:
             return False
-    
+    def decrypt_wallet_file(self, hood, file_path: str):
+        """
+        Дешифрует и показывает содержимое wallet файла
+        
+        Использование:
+        python sapphire_hood.py --decrypt "path/to/wallet.json"
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                encrypted_data = f.read()
+            
+            decrypted_data = hood.encryption_key.decrypt(encrypted_data)
+            wallet_data = json.loads(decrypted_data.decode())            
+            print(json.dumps(wallet_data, indent=2, ensure_ascii=False))
+
+        except Exception as e:
+            print(f"❌ Ошибка при чтении файла: {e}")
+
+    def validated_btc_address(self, address: str) -> bool:
+        """Validate a Bitcoin address"""
+        if not isinstance(address, str):
+            return False
+        if re.match(r'^(1|3|bc1)[a-zA-Z0-9]{25,39}$', address):
+            return True
+        return False
+    def validated_tron_address(self, address: str) -> bool:
+        """Validate a Tron address"""
+        if not isinstance(address, str):
+            return False
+        if re.match(r'^(T)[a-zA-Z0-9]{33}$', address):
+            return True
+        return False
     def information_for_qr(self, amount: float = None, currency: str = "eth", address: str = None) -> str:
         """Generate URI for QR code payment"""
         if address is None: 
@@ -529,15 +709,14 @@ class SapphireHood:
         buffer = BytesIO()
         img.save(buffer, format="PNG")
         buffer.seek(0)
-
         return buffer
-    def delete_wallet(self, wallet_name):
+    def delete_wallet(self, dir, wallet_name):
         """Delete a wallet by name"""
         if not self.is_authenticated:
             raise PermissionError("Authentication required")
         
         # Find wallet file by name
-        wallet_files = list(self.wallets_dir.glob(f"*{wallet_name}*.json"))
+        wallet_files = list(dir.glob(f"*{wallet_name}*.json"))
         if not wallet_files:
             raise FileNotFoundError(f"Wallet '{wallet_name}' not found")
         

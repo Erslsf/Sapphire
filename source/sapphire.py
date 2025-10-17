@@ -11,6 +11,7 @@ This file contains the main GUI for the Sapphire application, including login an
 
 import sys
 import os
+import json
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -33,7 +34,6 @@ BASE_PATH = get_base_path()
 source_path = str(BASE_PATH / "source")
 if source_path not in sys.path:
     sys.path.insert(0, source_path)
-
 try:
     from sapphire_hood import SapphireHood
 except ImportError as e:
@@ -217,8 +217,6 @@ class MainWindow(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 1. Header
-        header = self.create_header()
         
         # 2. Content container
         content = QHBoxLayout()
@@ -226,18 +224,23 @@ class MainWindow(QWidget):
         
         # Sidebar
         self.sidebar = self.create_sidebar()
-        
+        self.sidebar.setFixedWidth(0)  # Устанавливаем начальную ширину 0
+
+        # 1. Header
+        header = self.create_header()
+
         # Main content area
         main_area = QVBoxLayout()
         main_area.setContentsMargins(10, 0, 10, 0)  # Добавляем отступы слева и справа
         
         # График
         chart_container = QFrame()
-        chart_container.setStyleSheet("background-color: #1A1A1A; border-radius: 10px; margin: 10px;")
+        chart_container.setStyleSheet("background-color: None; border-radius: 10px; margin: 10px;")
         chart_layout = QVBoxLayout(chart_container)
         
         self.chart_view = QWebEngineView()
         self.chart_view.setFixedHeight(400)
+        
         chart_layout.addWidget(self.chart_view)
         
         # Список криптовалют
@@ -266,13 +269,21 @@ class MainWindow(QWidget):
         layout.setContentsMargins(20, 0, 20, 0)
         
         # Меню кнопка
-        menu_btn = QPushButton("☰")
-        menu_btn.setFixedSize(40, 40)
-        menu_btn.clicked.connect(self.toggle_sidebar)
+        self.menu_btn = QPushButton("☰")
+        self.menu_btn.setFixedSize(40, 40)
+        self.menu_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1A1A1A;
+                border: none;
+                color: #FFFFFF;
+                font-size: 18pt;
+            }""")
+
+        self.menu_btn.clicked.connect(self.toggle_sidebar)
         
         # Баланс
-        balance = QLabel("Total Balance: $10,245.50")
-        balance.setStyleSheet("font-size: 16px; font-weight: bold;")
+        balance = QLabel("Balance: $10,245.50")
+        balance.setStyleSheet("font-size: 12px; font-weight: bold;")
         
         # Лого
         logo = QLabel()
@@ -281,7 +292,7 @@ class MainWindow(QWidget):
             pixmap = QPixmap(logo_path)
             logo.setPixmap(pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio))
         
-        layout.addWidget(menu_btn)
+        layout.addWidget(self.menu_btn)
         layout.addWidget(balance)
         layout.addStretch()
         layout.addWidget(logo)
@@ -293,12 +304,13 @@ class MainWindow(QWidget):
         sidebar.setStyleSheet("""
             QFrame {
                 background-color: #1A1A1A;
-                border-right: 1px solid #2D2D2D;
-                margin: 10px 0;  /* Отступ сверху и снизу */
+                margin: 10px 10px;  /* Отступ сверху и снизу */
+                border-radius: 10px;
             }
             QPushButton {
+                 font-weight: 600;
+                font-size: 15px;
                 text-align: left;
-                padding: 15px;
                 margin: 5px 10px;
                 border-radius: 8px;
             }
@@ -307,7 +319,7 @@ class MainWindow(QWidget):
         
         # Добавляем внутренние отступы
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(0, 10, 0, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
 
         # Контейнер для кнопок с отступами
@@ -315,6 +327,20 @@ class MainWindow(QWidget):
         buttons_layout = QVBoxLayout(buttons_container)
         buttons_layout.setContentsMargins(10, 10, 10, 10)
         buttons_layout.setSpacing(8)
+        buttons_container.setStyleSheet("""
+            QWidget {
+                background: none;
+            }
+            QPushButton {
+                background: none;
+                text-align: left;
+                margin: 5px 10px;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #2D2D2D;
+            }
+        """)
         
         buttons = ['Dashboard', 'Wallets', 'Settings', 'Exchange', 'Buy', 'Sell', 'Send']
         for text in buttons:
@@ -383,84 +409,114 @@ class MainWindow(QWidget):
         layout.addWidget(copyright)
         
         return footer
-
+    
     def toggle_sidebar(self):
-        width = self.sidebar.width()
-        new_width = 0 if width > 0 else 250
+        current_width = self.sidebar.width()
+        target_width = 250 if current_width == 0 else 0
         
-        animation = QPropertyAnimation(self.sidebar, b"minimumWidth")
-        animation.setDuration(200)
-        animation.setStartValue(width)
-        animation.setEndValue(new_width)
-        animation.setEasingCurve(QEasingCurve.Type.InOutQuart)
-        animation.start()
+        # Создаем анимацию
+        self.animation = QPropertyAnimation(self.sidebar, b"minimumWidth")
+        self.animation.setDuration(200)
+        self.animation.setStartValue(current_width)
+        self.animation.setEndValue(target_width)
+        self.animation.setEasingCurve(QEasingCurve.Type.InOutQuart)
+        
+        # Также анимируем maximumWidth для обеспечения правильного поведения
+        self.animation2 = QPropertyAnimation(self.sidebar, b"maximumWidth")
+        self.animation2.setDuration(200)
+        self.animation2.setStartValue(current_width)
+        self.animation2.setEndValue(target_width)
+        self.animation2.setEasingCurve(QEasingCurve.Type.InOutQuart)
+        
+        # Запускаем анимации
+        self.animation.start()
+        self.animation2.start()
 
     def post_login_setup(self):
         """Called after successful login"""
         self.load_chart_data()
 
     def load_chart_data(self):
-        chart_html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-        </head>
-        <body style="margin:0; background-color:#1a1a1a;">
-            <div id="chart"></div>
-            <script>
-                const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+        # Получаем данные через hood
+        candle_data = self.hood.get_binance_klines()
+        
+        chart_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+    </head>
+    <body style="margin:0; background-color:#131722;">
+        <div id="chart" style="width:100%; height:100vh;"></div>
+        <script>
+            const chartOptions = {{
+                layout: {{
+                    background: {{ color: '#000000' }},
+                    textColor: '#d1d4dc',
+                }},
+                grid: {{
+                    vertLines: {{ color: 'rgba(43, 43, 67, 0.7)', style: 1 }},
+                    horzLines: {{ color: 'rgba(43, 43, 67, 0.7)', style: 1 }},
+                }},
+                crosshair: {{
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: {{
+                        color: '#555',
+                        width: 1,
+                        style: 1,
+                        labelBackgroundColor: '#131722',
+                    }},
+                    horzLine: {{
+                        color: '#555',
+                        width: 1,
+                        style: 1,
+                        labelBackgroundColor: '#131722',
+                    }},
+                }},
+                timeScale: {{
+                    borderColor: '#2B2B43',
+                    timeVisible: true,
+                    secondsVisible: false,
+                    rightOffset: 12,
+                    barSpacing: 6,
+                }},
+                rightPriceScale: {{
+                    borderColor: '#2B2B43',
+                    scaleMargins: {{
+                        top: 0.1,
+                        bottom: 0.1,
+                    }},
+                }},
+            }};
+            
+            const chart = LightweightCharts.createChart(document.getElementById('chart'), chartOptions);
+            const candlestickSeries = chart.addCandlestickSeries({{
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+                priceFormat: {{ type: 'price', precision: 2, minMove: 0.01 }},
+            }});
+            
+            const data = {json.dumps(candle_data)};
+            candlestickSeries.setData(data);
+            
+            // Автомасштабирование и адаптивность
+            chart.timeScale().fitContent();
+            
+            window.addEventListener('resize', () => {{
+                chart.applyOptions({{
                     width: window.innerWidth,
-                    height: 400,
-                    layout: {
-                        background: { color: '#1A1A1A' },
-                        textColor: '#d1d4dc',
-                    },
-                    grid: {
-                        vertLines: { color: '#2B2B43' },
-                        horzLines: { color: '#2B2B43' },
-                    },
-                    crosshair: {
-                        mode: LightweightCharts.CrosshairMode.Normal,
-                    },
-                    rightPriceScale: {
-                        borderColor: '#2B2B43',
-                    },
-                    timeScale: {
-                        borderColor: '#2B2B43',
-                        timeVisible: true,
-                    },
-                });
-
-                const candleSeries = chart.addCandlestickSeries({
-                    upColor: '#26a69a',
-                    downColor: '#ef5350',
-                    borderVisible: false,
-                    wickUpColor: '#26a69a',
-                    wickDownColor: '#ef5350'
-                });
-
-                fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100')
-                    .then(response => response.json())
-                    .then(data => {
-                        const candleData = data.map(d => ({
-                            time: d[0] / 1000,
-                            open: parseFloat(d[1]),
-                            high: parseFloat(d[2]),
-                            low: parseFloat(d[3]),
-                            close: parseFloat(d[4])
-                        }));
-                        candleSeries.setData(candleData);
-                    });
-
-                window.addEventListener('resize', () => {
-                    chart.applyOptions({ width: window.innerWidth });
-                });
-            </script>
-        </body>
-        </html>
-        """
+                    height: window.innerHeight
+                }});
+            }});
+        </script>
+    </body>
+    </html>
+    """
+        
         self.chart_view.setHtml(chart_html)
 
 def main():
